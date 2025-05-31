@@ -28,6 +28,73 @@ Repositorio con los scripts utilizados en el análisis del TFM: *Evaluación de 
 - PLINK v1.9 y v2.0
 - PRSice-2
 
+## Paquetes de R utilizados
+
+### Base de datos
+
+- `readxl`
+- `dplyr`
+- `data.table`
+- `tidyverse`
+
+### Análisis exploratorio
+
+- `visdat`
+- `corrplot`
+- `metan`
+- `purrr`
+- `factoextra`
+- `DataExplorer`
+
+### Análisis descriptivo
+
+- `gtsummary`
+- `apaTables`
+- `rcompanion`
+- `broom`
+- `epiDisplay`
+
+### Análisis univariable y multivariable
+
+- `lmerTest`
+- `emmeans`
+- `nlme`
+- `MuMIn`
+- `lme4`
+- `FDRestimation`
+- `pbkrtest`
+- `FactoMineR`
+- `caret`
+- `pROC`
+- `ResourceSelection`
+- `glmnet`
+- `pscl`
+- `car`
+- `smss`
+- `ROSE`
+
+### Tablas y gráficos
+
+- `knitr`
+- `kableExtra`
+- `patchwork`
+- `lattice`
+- `ggplot2`
+- `grid`
+- `gridExtra`
+- `cowplot`
+- `ganttrify`
+- `VennDiagram`
+
+## Entorno de trabajo
+
+El código ha sido desarrollado en:
+
+- **Sistema operativo:** Linux (procesamiento de datos de genotipado y construcción de PGS y pPGS) y RStudio (análisis exploratorio y estadístico).
+- **Formato de salidas:** Informe en PDF generado a partir de `.Rmd`.
+
+---
+
 ## Nota
 
 Código publicado con fines académicos.
