@@ -1,0 +1,796 @@
+---
+title: "Evaluación de perfiles poligénicos basados en diagnósticos psiquiátricos y vías biológicas para predecir psicosis de inicio precoz en la adolescencia"
+author: "Irene Martínez Serrano"
+date: "04-06-2025"
+subtitle: "Trabajo de Fin de Máster: Informe de resultados"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    includes:
+      in_header: preambulo.tex
+    fig_caption: true
+    toc: true
+    toc_depth: 2 
+    fig_width: 5
+    fig_height: 4
+fontsize: 11pt
+line-height: 1.5
+geometry: a4paper, margin=2.5cm
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=80), tidy=TRUE)
+
+knitr::opts_knit$set(root.dir = "C:/Users/irma2/OneDrive - FUNDACIÓ DE RECERCA CLÍNIC BARCELONA-INSTITUT D'INVESTIGACIONS BIOMÈDIQUES AUGUST PI I SUNYER/Escritorio/Màster/TFM")
+
+```
+
+# Importación de librerías necesarias.
+
+```{r librerias, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(readxl)
+library(gtsummary)
+library(lmerTest)
+library(apaTables) 
+library(patchwork)
+library(knitr)
+library(emmeans)
+library(lattice)
+library(nlme)
+library(MuMIn)
+library(lme4)
+library(visdat)
+library(rcompanion)
+library(ggplot2)
+library(corrplot)
+library(grid)
+library(gridExtra)
+library(dplyr)
+library(RColorBrewer)
+library(data.table)
+library(metan)
+library(broom)
+library(tidyverse)
+library(purrr)
+library(cowplot) 
+library(smss)
+library(pbkrtest)
+library(ROSE)
+library(FactoMineR)
+library(factoextra)
+library(epiDisplay)
+library(ganttrify)
+library(GGally)
+library(readxl)
+library(VennDiagram)
+library(DataExplorer)
+library(caret)
+library(pROC)
+library(ResourceSelection)
+library(glmnet)
+library(kableExtra)
+library(pscl)
+library(car)
+library(MLeval)
+
+```
+
+# Resultados preliminares
+
+## Diagrama de Gannt
+
+```{r gannt, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE, fig.width=12, fig.height=6, out.width='100%'}
+# Leemos el archivo Excel que contiene el detalle de cada PEC, sus tareas asignadas y las fechas exactas de elaboración y entrega
+task_data <- readxl::read_excel("task_data_tfm.xlsx", sheet = 1)
+
+# Comprobamos la correcta lectura del data.frame y convertimos las dos últimas columnas en fecha
+glimpse(task_data)
+
+task_data$`Fecha de inicio` <- as.Date(task_data$`Fecha de inicio`)
+task_data$`Fecha de fin` <- as.Date(task_data$`Fecha de fin`)
+
+# Y generamos el diagrama de Gannt 
+gannt <- ganttrify(
+  project = task_data,
+  by_date = TRUE,
+  exact_date = TRUE,
+  size_text_relative = 0.8,
+  mark_quarters = TRUE,
+  font_family = "sans",
+  colour_palette = MetBrewer::met.brewer("Lakota"))
+
+# Añadimos título
+gannt + ggtitle("Figura 1. Cronograma de Gannt")
+
+```
+
+## Diagrama de Venn
+
+```{r venn, echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+# Cargamos el excel al entorno
+listado_genes_pathways <- read_excel("tablas_tfm.xlsx", sheet = 1)
+
+# Comprobamos que cada columna corresponda a cada vía biológica
+colnames(listado_genes_pathways)
+
+# Y guardamos cada columna (es decir, cada vía biológica) en una agrupación de listas que contengan el grupo de genes específicos. Este cambio de formato nos ayudará a generar correctamente el gráfico, así como a renombrar las columnas de forma específica con el concepto que sea adecuado
+listas <- list(
+  "Vía de neuroinflamación" = na.omit(listado_genes_pathways[[1]]),
+  "Vía glutamatérgica" = na.omit(listado_genes_pathways[[2]]),
+  "Vía dopaminérgica" = na.omit(listado_genes_pathways[[3]]),
+  "Vía gabaérgica" = na.omit(listado_genes_pathways[[4]])
+)
+
+# Implementamos la función definida por el paquete VennDiagram y generamos el gráfico
+display_venn <- function(x, ...){
+  library(VennDiagram)
+  grid.newpage()
+  venn_object <- venn.diagram(x, filename = NULL, ...)
+  grid.draw(venn_object)
+  grid.text("Figura 2. Diagrama de Venn", y = unit(0.95, "npc"))
+}
+
+display_venn(
+  x = listas, 
+  lwd = 2,
+  lty = "blank",
+  fill = c("#999999", "#E69F00", "#56B4E9", "#009E73"),
+  cex = 0.7,
+  fontface = "italic",
+  cat.cex = 1,
+  cat.fontface = "bold",
+  cat.default.pos = "outer",
+  cat.dist = c(0.055, 0.055, 0.1, 0.1)
+)
+
+```
+
+## Control de calidad: heterocigosidad
+
+```{r qc_genetico, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Dado que se trata de un archivo de tipo csv, usaremos la función read.csv()
+het <- read.csv("script/heteroz.het", sep="")
+
+# En los archivos del control de calidad genético no tenemos la variable grupo, la generaremos a través de la codificación de IDs de la muestra. En el caso de los casos, sus codificadores continenen o bien "C" o bien "N", así que todos los ID que no contengan estas letras serán casos
+
+het <- het %>%
+  mutate(Grupo = ifelse(grepl("C|N", FID), "CS", "PIP"))
+
+# Guardaremos la métricas de media y desviación estandard de F (heterocigosidad), para poder añadir el gráfico 2 líneas de los límites estrictos usados en la exclusión de participantes que se desvíen de la nube de puntos (+- 3 desviaciones estandard de la media):
+media_F <- mean(het$F, na.rm = TRUE)
+sd_F <- sd(het$F, na.rm = TRUE)
+
+
+# Y finalmente graficamos el plot con ggplot2, usando especificamente geom_jitter()
+ggplot(het, aes(x = 1, y = F, color = Grupo)) +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.7) +
+  scale_color_manual(values = c("CS" = "#8FBC94", "PIP" = "#613F75")) +
+  geom_hline(yintercept = media_F + 3 * sd_F, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = media_F - 3 * sd_F, linetype = "dashed", color = "black") +
+  labs(title = "Figura 3. Control de calidad genético: heterocigosidad", x = "", y = "F") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+
+```
+
+# Importación de los datos
+
+## Preparación de la base de datos del estudio
+
+```{r db, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+db <- read_xlsx("C:/Users/irma2/OneDrive - FUNDACIÓ DE RECERCA CLÍNIC BARCELONA-INSTITUT D'INVESTIGACIONS BIOMÈDIQUES AUGUST PI I SUNYER/Escritorio/Màster/TFM/db_TFM_20052025.xlsx")
+
+# Y generamos una tabla con el paquete knitr con el número de participantes por grupo
+db %>%
+  count(Grupo, name = "n") %>%
+  kable(caption = "Muestra inicial") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+
+```
+
+```{r mds, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# En primer lugar comprobamos con la función sapply() la tipología de las variables MDS
+sapply(db[c("MDS1", "MDS2")], class)
+
+# Como vemos, se han leído como character, así que realizaremos una reconversión a numérico usando lapply()
+db[c("MDS1", "MDS2")] <- lapply(db[c("MDS1", "MDS2")], as.numeric)
+
+# A continuación calcularemos y guardaremos tanto la media como la desviación estandard de las 2 primers componente (MDS1, MDS2)
+stats <- db %>%
+  summarise(
+    mean_MDS1 = mean(MDS1, na.rm = TRUE),
+    mean_MDS2 = mean(MDS2, na.rm = TRUE),
+    sd_MDS1 = sd(MDS1, na.rm = TRUE),
+    sd_MDS2 = sd(MDS2, na.rm = TRUE)
+  )
+
+# Y también generamos un objeto que recoja los límites del cuadrado ±3 DE de ambas componentes, para posteriormente graficarlo y poder detectar de forma visual los participantes que queden fuera de este umbral
+umbral <- data.frame(
+  xmin = stats$mean_MDS1 - 3 * stats$sd_MDS1,
+  xmax = stats$mean_MDS1 + 3 * stats$sd_MDS1,
+  ymin = stats$mean_MDS2 - 3 * stats$sd_MDS2,
+  ymax = stats$mean_MDS2 + 3 * stats$sd_MDS2
+)
+
+# Y finalmente graficamos 
+ggplot(db, aes(x = MDS1, y = MDS2, color = Grupo)) +
+  geom_point(alpha = 0.8) +
+  scale_color_manual(values = c("CS" = "#8FBC94", "PIP" = "#613F75")) +
+  geom_rect(data = umbral,
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            inherit.aes = FALSE,
+            fill = NA, color = "red", linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "Figura 4. MDS: Muestra del estudio con outliers",
+       x = "MDS1", y = "MDS2", color = "Grupo")
+
+
+
+# Y excluimos los outliers del data.frame del estudio
+db <- db %>%
+  filter(MDS1 >= umbral$xmin & MDS1 <= umbral$xmax &
+         MDS2 >= umbral$ymin & MDS2 <= umbral$ymax)
+
+# Y volvemos a generar una tabla con el paquete knitr con el número de participantes por grupo
+db %>%
+  count(Grupo, name = "n") %>%
+  kable(caption = "Muestra final") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+```
+
+# Análisis exploratorio de los datos
+
+```{r exp_1, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Imprimimos las 10 primeras observaciones del dataset
+head(db, n=10)
+
+# Y el nomnbre de las columans de nuestro df
+colnames(db)
+
+```
+
+## Estructura
+
+```{r exp_2, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# En primer lugar inspeccionaremos la estructura de datos 
+glimpse(db)
+
+# Realizamos una inspección de la tipología de las variables del estudio
+vis_dat(db, palette = "qual") +  ggtitle("Figura 5. Tipología de las variables del estudio")
+
+# Imprimimos las dimensiones en cuanto a número de observaciones y columnas del data.frame
+dim(db)
+
+# Y con sapply generamos también un listado del nombre de columnas y su tipología.
+sapply(db,class)
+
+# Cómo detectamos ciertas variables de tipo character que interesa que sean de tipo factor, usando la función lapply realizaremos esta conversión
+db[] <- lapply(db, function(x) {
+  if (is.character(x)) factor(x) else x
+})
+
+# Y volvemos a comprobar que se ha generado correctamente la conversión
+vis_dat(db, palette = "qual" )  +  ggtitle("Figura 6. Comprobación de la tipología de las variables del estudio")
+
+```
+
+```{r exp_3, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+plot_intro(db)
+```
+
+```{r exp_4, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Calculamos el porcentaje de cada grupo y guardamos el resultado en un data.frame
+tabla <- as.data.frame(table(db$Grupo)) %>%
+  mutate(
+    Porcentaje = paste0(round(Freq/sum(Freq) * 100, 2), "%")
+  )
+
+# Renombramos las columnas
+colnames(tabla) <- c("Grupo", "n", "Porcentaje")
+
+tabla %>%
+  kable(caption = "Distribución por grupo") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+```
+
+## Valores faltantes o nulos
+
+```{r exp_5, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+vis_miss(db)  +  ggtitle("Figura 7. Presencia de valores faltantes en el conjunto de datos")
+colSums(is.na(db))
+```
+
+```{r exp_6, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+sapply(db, function(x) any(is.null(x)))
+
+```
+
+## Univariante
+
+```{r exp_7, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+summary(db)
+```
+
+### Variables numéricas
+
+```{r exp_8, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Boxplot para Edad
+f1 <- ggplot(db, aes(x = Grupo, y = Edad, fill = Grupo)) +
+  introdataviz::geom_split_violin(alpha = .4, trim = FALSE) +
+  geom_boxplot(width = .2, alpha = .8, fatten = NULL, show.legend = FALSE) +
+  stat_summary(fun.data = "mean_se", geom = "pointrange", show.legend = FALSE, 
+               position = position_dodge(.175)) +
+  scale_fill_manual(values = c("CS" = "#8FBC94", "PIP" = "#613F75"), name = "Grupo") +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+# Boxplot para MDS. A diferencia del anterior, dado que queremos graficar más de una variable en el mismo gráfico, usaremos la función pivot_longer() para reformatear el data.frame de formato ancho a largo
+num_list_MDS <- c("MDS1", "MDS2")
+
+dat_long <- db %>%
+  pivot_longer(
+    cols = num_list_MDS,
+    names_to = "Variable",
+    values_to = "Valor"
+  )
+
+f2 <- ggplot(dat_long, aes(x = Variable, y = Valor, fill = Grupo)) +
+  introdataviz::geom_split_violin(alpha = .4, trim = FALSE) +
+  geom_boxplot(width = .2, alpha = .8, fatten = NULL, show.legend = FALSE) +
+  stat_summary(fun.data = "mean_se", geom = "pointrange", show.legend = FALSE, 
+               position = position_dodge(.175)) +
+  scale_fill_manual(values = c("CS" = "#8FBC94", "PIP" = "#613F75"), name = "Grupo") +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+
+
+## PGS y pPGS (con el mismo código anterior)
+num_list_PGS <- c("PGS_SZ", "PGS_BP", "PGS_MDD", "PGS_TDAH", "pPGS_SZ_DOPA", "pPGS_SZ_GABA", "pPGS_SZ_GLUT", "pPGS_SZ_NEUROINF")
+
+dat_long <- db %>%
+  pivot_longer(
+    cols = num_list_PGS,
+    names_to = "Variable",
+    values_to = "Valor"
+  )
+
+f3 <- ggplot(dat_long, aes(x = Variable, y = Valor, fill = Grupo)) +
+  introdataviz::geom_split_violin(alpha = .4, trim = FALSE) +
+  geom_boxplot(width = .2, alpha = .8, fatten = NULL, show.legend = FALSE) +
+  stat_summary(fun.data = "mean_se", geom = "pointrange", show.legend = FALSE, 
+               position = position_dodge(.175)) +
+  scale_fill_manual(values = c("CS" = "#8FBC94", "PIP" = "#613F75"), name = "Grupo") +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+```
+
+```{r f1, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+f1 +  ggtitle("Figura 8. Boxplot para Edad")
+```
+
+```{r f2, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+f2 +  ggtitle("Figura 9. Boxplot para MDS")
+```
+
+```{r f3, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+f3 +  ggtitle("Figura 10. Boxplot para PGS y pPGS")
+```
+
+### Variables categóricas
+
+```{r exp_9, fig.width=12, fig.height=8, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Para generar estos graficos, adaptaremos el código anterior de la misma forma: generaremos un listado de las variables categóricas a graficar (excepto ID y Grupo, ya que este segundo lo usaremos para distinguir entre grupos)
+cat_vars <- names(db)[sapply(db, is.factor) & !names(db) %in% c("ID", "Grupo")]
+
+# Reformateamos a formato largo
+df_long <- pivot_longer(db,
+                        cols = cat_vars,
+                        names_to = "Variable",
+                        values_to = "Valor")
+
+# Calculamos específicamente las proporciones de cada nivel de las variables categóricas por grupo
+df_prop <- df_long %>%
+  group_by(Variable, Grupo, Valor) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Variable, Grupo) %>%
+  mutate(Proporcion = n / sum(n)) %>%
+  ungroup()
+
+# Y finalmente graficamos con ggplot
+ggplot(df_prop, aes(x = Valor, y = Proporcion, fill = Grupo)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("CS" = "#8FBC94", "PIP" = "#613F75"), name = "Grupo") +
+  facet_wrap(~Variable, scales = "free_x", ncol = 2) +
+  labs(x = "Categoría", y = "Proporción", fill = "Grupo") +
+  ggtitle("Figura 11. Gráfico de barras para las variables categóricas entre grupos") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+```
+
+## Multivariante
+
+```{r exp_10, fig.width=15, fig.height=15, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ggpairs(db[ , !(names(db) %in% "ID")])  +  ggtitle("Figura 12. Análisis de correlación entre todas las variables del estudio")
+
+```
+
+# Análisis estadístico
+
+## Análisis descriptivo
+
+```{r descr_1, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+shapiro.test(db$Edad)
+```
+
+```{r descr_2, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Seleccionamos las variables demográficas de la muestra
+db_demografica <-  db %>% dplyr:: select(c("Grupo", "Edad", "Sexo"))
+
+# Realizamos una breve comprobación de que se han seleccionado las correctas
+str(db_demografica)
+
+# Y generamos la tabla con tbl_summary()
+tabla_demografica <- tbl_summary(db_demografica,
+                                 by = "Grupo",
+                                 statistic = list(all_continuous() ~ "{N_nonmiss}: {mean} ({sd})",
+                                                  all_categorical() ~ "{n}: ({p}%)"), 
+                                 missing = "no")%>%
+  add_n() %>%
+  add_p(test = list(all_continuous() ~ "kruskal.test", all_categorical() ~ "chisq.test")) %>%
+  modify_header(label ~ "") %>%
+  modify_caption("**Características demográficas por grupo**")
+
+tabla_demografica
+```
+
+```{r descr_3, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Seleccionamos las variables demográficas de la muestra
+db_clinica <- db %>%
+  filter(Grupo == "PIP") %>%
+  dplyr::select(
+    "Diagnóstico del eje I a lo largo de la vida",
+    "Trastornos psicóticos", 
+    "Trastornos del estado de ánimo", 
+    "Trastorno por Déficit de Atención e Hiperactividad (TDAH)",
+    "Trastornos de ansiedad", 
+    "Trastornos de la conducta", 
+    "Otros diagnósticos"
+  )
+
+# Realizamos una breve comprobación de que se han seleccionado las correctas
+str(db_clinica)
+
+# Y generamos la tabla con tbl_summary()
+tabla_clinica <- tbl_summary(db_clinica,
+                             statistic = list(
+                               all_continuous() ~ "{N_nonmiss}: {mean} ({sd})",
+                               all_categorical() ~ "{n}: ({p}%)"), 
+                             missing = "no") %>%
+  modify_header(label ~ "") %>%
+  modify_caption("**Características clínicas de la muestra**")
+
+tabla_clinica
+```
+
+
+## Análisis de correlación
+
+```{r descr_4, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+round(sapply(db[6:13], function(x) shapiro.test(x)$p.value), 2)
+
+```
+
+```{r descr_5, echo=FALSE, fig.height=5, fig.width=5, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Generamos la matriz de correlaciones de Spearman
+CM <- corr_coef(db[, num_list_PGS], method = "spearman")
+print("Matriz de correlaciones:")
+CM
+
+# E imprimimos el plot
+plot(CM, reorder = FALSE, digits.cor = 2) +
+  ggtitle("Figura 13. Análisis de correlación entre PGS y pPGS") +
+  theme(axis.text.x = element_text(color = "black", size = 10, face = "bold"),
+        axis.text.y = element_text(color = "black", size = 10, face = "bold"),
+        plot.margin = margin(0.6, 0.6, 0.6, 0.6, "cm")) +
+  scale_fill_gradient2(low = "#301A4B", mid = "white", high = "#F39A9D",
+                       midpoint = 0, limits = c(-1, 1), space = "Lab",
+                       name = "Correlación de Spearman")
+
+
+
+```
+
+## Análisis univariable + validación cruzada 10-fold
+
+```{r univ_1, fig.width=12, fig.height=10, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# En primer lugar, recuperamos la lista con el nombre de las PGS y pPGS del estudio
+num_list_PGS
+
+# También confirmaremos que nuestra variable respuesta esté bien codificada
+db$Grupo <- factor(db$Grupo, levels = c("CS", "PIP"))
+
+# Configuramos la validación cruzada
+control_cv <- trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final"
+)
+
+# Con tal de tener todos los resultados guardados en el entorno de Rstudio para posterior inspección, crearemos listas vacías en las que el bucle for que generemos para iterar los modelos vayan guardando información relevante
+
+## Lista para los modelos
+lista_modelos <- list()
+## Lista para el resumen de los modelos
+lista_resumen <- list()
+## Lista para las predicciones de los modelos
+lista_predicciones <- list()
+
+# Y a continuación generamos el bucle for sobre cada PGS y pPGS individualmente
+for (var in num_list_PGS) {
+  
+  # Construimos la fórmula del modelo
+  formula <- as.formula(paste("Grupo ~", var))
+  
+  # Fijamos la semilla (importante al usar validación cruzada)
+  set.seed(1965834)
+  
+  # Y ajustamos el modelo
+  modelo <- train(
+    formula,
+    data = db,
+    method = "glm",
+    family = "binomial",
+    trControl = control_cv,
+    metric = "ROC",
+    preProcess = c("scale")
+  )
+  
+  # Guardamos cad amodelo por su PGS/pPGS en la lista creada anteriormente para los modelos
+  lista_modelos[[var]] <- modelo
+  
+  # Y también guardamos las predicciones (en este caso, ordenadas para evitar posibles errores de formato)
+  preds <- modelo$pred %>%
+    arrange(rowIndex) %>%
+   mutate(
+      Observado = ifelse(obs == "PIP", 1, 0),
+      Predicho = .data[["PIP"]],
+      Variable = var
+    ) %>%
+    dplyr::select(Variable, Predicho, Observado)
+
+
+  lista_predicciones[[var]] <- preds    
+  # A continuación realizamos el test de Hosmer-Lemeshow para estudiar la calibración de los modelos univariables
+  hl_p <- hoslem.test(preds$Observado, preds$Predicho, g = 10)$p.value
+  
+  # Calcular AUC y IC95% con pROC
+  roc_obj <- roc(response = preds$Observado, predictor = preds$Predicho)
+  auc_valor <- auc(roc_obj)
+  ci_auc <- ci.auc(roc_obj)
+
+# Guardar AUC y IC en la tabla resumen
+  lista_resumen[[var]] <- data.frame(
+   Variable = var,
+   AUC = round(as.numeric(auc_valor), 3),
+   IC_inf = round(ci_auc[1], 3),
+   IC_sup = round(ci_auc[3], 3),
+   HL_pval = round(hl_p, 3)
+)
+}
+
+# Todo seguido gaurdamos los resultados de las listas de métricas y predicciones en sus data.frames pertinentes
+tabla_resultados <- bind_rows(lista_resumen)
+df_calibracion <- bind_rows(lista_predicciones)
+
+# Generamos la tabla por kableExtra de los resultados
+tabla_resultados %>%
+  kable("latex", caption = "Resultados de análisis univariable de cada PGS y pPGS", 
+        digits = 3, align = c("l", "c", "c")) %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"), 
+                position = "center", full_width = FALSE, font_size = 10)
+
+# Y finalmente generamos también el gráfico de calibración de cada modelo
+ggplot(df_calibracion, aes(x = Predicho, y = Observado)) +
+  geom_smooth(method = "loess", se = TRUE, color = "#2c7fb8", span = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  facet_wrap(~ Variable, ncol = 2) +
+  labs(
+    title = "Figura 14. Curvas de calibración de los modelos univariables",
+    x = "Probabilidad predicha",
+    y = "Proporción observada"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+```
+
+## Análisis multivariable con penalización de LASSO + validación cruzada 10-fold
+
+```{r multiv_2, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Para trabajar con el modelo multivariable, en primer lugar definiremos las variables predictoras (X) en una matriz numérica y la variable respuesta (y)
+X <- model.matrix(~ . - 1, data = db[, num_list_PGS])
+y <- ifelse(db$Grupo == "PIP", 1, 0)
+
+# Y a continuación ajustamos el modelo penalizado por LASSO (alpha = 1) con validación cruzada (10-fold) usando AUC como métrica
+set.seed(1965834)
+cv_lasso <- cv.glmnet(
+  x = X,
+  y = y,
+  family = "binomial",
+  alpha = 1,
+  type.measure = "auc",
+  nfolds = 10
+)
+
+print("Lambda con mejor AUC")
+cv_lasso$lambda.min
+
+# Y recuperamos las PGS y pPGS incluidas en el modelo penalizado identificando primero los coeficientes del modelo que no sean 0
+coef_lasso <- coef(cv_lasso, s = "lambda.min")
+vars <- rownames(coef_lasso)[which(coef_lasso != 0)]
+## Excluimostambiénelintercepto
+vars <- vars[vars != "(Intercept)"]
+vars
+
+# Una vez identificadas las PGS y pPGS que se incluyen en el modelo, definimos la fórmula del modelo final con las mismas
+formula_final <- as.formula(paste("Grupo ~", paste(vars, collapse = " +")))
+# Comprobamos que nuestras variables de interés esten en el formato correcto
+sapply(db[, vars],class)
+
+# Y ajustamos un modelo GLM clásico con validación cruzada 10-fold
+modelo_lasso <- train(formula_final, data = db, method = "glm", family = "binomial", trControl = control_cv, metric = "ROC", preProcess = c("scale"))
+
+# Extraemos la AUC media de cada test de la validación cruzada (es decir, las predicciones internas de cada fold)
+roc_lasso <- roc(response = modelo_lasso$pred$obs,
+                 predictor = modelo_lasso$pred$PIP,
+                 levels = c("CS", "PIP"))
+auc_lasso <- auc(roc_lasso)
+ci_lasso <- ci.auc(roc_lasso)
+
+print(paste("AUC LASSO (CV):", round(auc_lasso, 3)))
+print(paste0("IC 95%: [", round(ci_lasso[1], 3), ", ", round(ci_lasso[3], 3), "]"))
+
+
+# Y realizamos el test de calibración del modelo
+observado_bin <- ifelse(modelo_lasso$pred$obs == "PIP", 1, 0)
+predicho_prob <- modelo_lasso$pred$PIP
+hl_test <- hoslem.test(observado_bin, predicho_prob, g = 10)
+
+# Recuperando el código anterior, generamos el gráfico de calibración adecuado
+df_plot <- data.frame(
+  Observado = ifelse(modelo_lasso$pred$obs == "PIP", 1, 0),
+  Prob_PIP = modelo_lasso$pred$PIP
+)
+
+ggplot(df_plot, aes(x = Prob_PIP, y = Observado)) +
+  geom_smooth(method = "loess", se = TRUE, color = "#1f78b4", span = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  labs(
+    title = "Figura 15. Curva de calibración del modelo multivariable final",
+    x = "Probabilidad predicha (PIP)",
+    y = "Frecuencia observada (PIP)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r vif, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Generamos un modelo glm simple, ya que vif() no trabaja con modelos de tipo train
+modelo_vif <- glm(Grupo ~ PGS_TDAH + PGS_BP + pPGS_SZ_NEUROINF,
+                  data = db,
+                  family = binomial)
+
+# Y calculamos el VIF
+print("VIF:")
+vif(modelo_vif)
+
+```
+
+## Evaluación de rendimiento predictivo comparativo
+
+### AUC
+
+```{r auc, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# En primer lugar, guardamos todos los modelos a visualizar en la misma lista, reutilizando el listado creaod anteriormente en el análisis univariado
+models <- c(lista_modelos, list("multivariable" = modelo_lasso))
+
+# Dado que la función evalm() del paquete MLeval asigna colores a los modelos según el orden alfabético de sus nombres,
+# y queremos mantener la consistencia con el orden utilizado en tablas y figuras anteriores,
+# reordenaremos los modelos añadiendo un prefijo numérico a sus nombres.
+# Esto permitirá que evalm() los procese en el orden deseado y genere el gráfico con los colores correspondientes.
+nombres_modelos_prefijo <- sprintf("%02d_%s", seq_along(names(models)), names(models))
+names(models) <- nombres_modelos_prefijo
+
+# Y finalmente ejecutamos evalm(), seleccionado que únicamente imprima el gráfico de AUC
+res <- evalm(
+  models,
+  gnames = names(models), 
+  plots = "r",
+  rlinethick = 0.8,
+  fsize = 8
+)
+
+grid.text("Figura 16. Curvas ROC para cada modelo implementado", y = unit(0.95, "npc"))
+
+```
+
+```{r eval_auc, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Guardamos las predicciones del mejor modelo univariable (PGS_TDAH)
+roc_TDAH <- roc(response = lista_predicciones[["PGS_TDAH"]]$Observado,
+              predictor = lista_predicciones[["PGS_TDAH"]]$Predicho)
+
+# Y finalmente fijamos la semilla con tal de comparar ambos modelos
+set.seed(1965834)
+roc.test(roc_lasso, roc_TDAH, method = "bootstrap")
+
+```
+
+### Pseudo-R²
+
+```{r eval_pseudor, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Para calcular las pseudo-r2, volvemos a generar los modelos glm univariado y multivariado sin validación cruzada
+modelo_uni_glm <- glm(Grupo ~ PGS_TDAH, data = db, family = binomial)
+modelo_multi_glm <- glm(Grupo ~ PGS_TDAH + PGS_BP + pPGS_SZ_NEUROINF, data = db, family = binomial)
+
+# Crear el dataframe con los valores de pseudo-R² (sustituye con tus valores reales)
+df_r2 <- data.frame(
+  Modelo = c("univariable (PGS_TDAH)", "multivariable (LASSO)"),
+  McFadden_R2 = c(pR2(modelo_uni_glm)["McFadden"], pR2(modelo_multi_glm)["McFadden"])
+)
+
+# Y finalmente graficamos
+ggplot(df_r2, aes(x = Modelo, y = McFadden_R2, fill = Modelo)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = c("#a6cee3", "#1f78b4")) +
+  labs(
+    title = "Figura 17. Comparación de pseudo-R² de McFadden",
+    y = "McFadden R²", x = ""
+  ) +
+  ylim(0, 0.2) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 10, hjust = 1),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  ) +
+  geom_text(aes(label = round(McFadden_R2, 3)), vjust = -0.5, size = 4)
+
+
+```
+
+
+
+
+
