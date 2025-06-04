@@ -30,50 +30,55 @@ knitr::opts_knit$set(root.dir = "C:/Users/irma2/OneDrive - FUNDACIÓ DE RECERCA 
 # Importación de librerías necesarias.
 
 ```{r librerias, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# Base de datos
 library(readxl)
+library(dplyr)
+library(data.table)
+library(tidyverse)
+
+# Análisis exploratorio
+library(visdat)
+library(corrplot)
+library(metan)
+library(purrr)
+library(factoextra)
+library(DataExplorer)
+library(GGally)
+
+# Análisis descriptivo
 library(gtsummary)
+library(apaTables)
+library(rcompanion)
+library(broom)
+library(epiDisplay)
+
+# Análisis univariable y multivariable
 library(lmerTest)
-library(apaTables) 
-library(patchwork)
-library(knitr)
-library(emmeans)
-library(lattice)
-library(nlme)
 library(MuMIn)
 library(lme4)
-library(visdat)
-library(rcompanion)
-library(ggplot2)
-library(corrplot)
-library(grid)
-library(gridExtra)
-library(dplyr)
-library(RColorBrewer)
-library(data.table)
-library(metan)
-library(broom)
-library(tidyverse)
-library(purrr)
-library(cowplot) 
-library(smss)
 library(pbkrtest)
-library(ROSE)
-library(FactoMineR)
-library(factoextra)
-library(epiDisplay)
-library(ganttrify)
-library(GGally)
-library(readxl)
-library(VennDiagram)
-library(DataExplorer)
 library(caret)
 library(pROC)
 library(ResourceSelection)
 library(glmnet)
-library(kableExtra)
 library(pscl)
 library(car)
+library(smss)
+library(ROSE)
 library(MLeval)
+
+# Tablas y gráficos
+library(knitr)
+library(kableExtra)
+library(patchwork)
+library(lattice)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(cowplot)
+library(ganttrify)
+library(VennDiagram)
+library(RColorBrewer)
 
 ```
 
@@ -588,22 +593,22 @@ for (var in num_list_PGS) {
 
   lista_predicciones[[var]] <- preds    
   # A continuación realizamos el test de Hosmer-Lemeshow para estudiar la calibración de los modelos univariables
+  hl_X <- hoslem.test(preds$Observado, preds$Predicho, g = 10)$statistic
   hl_p <- hoslem.test(preds$Observado, preds$Predicho, g = 10)$p.value
   
-  # Calcular AUC y IC95% con pROC
+  # Calcular AUC-ROC y IC95% con pROC
   roc_obj <- roc(response = preds$Observado, predictor = preds$Predicho)
   auc_valor <- auc(roc_obj)
   ci_auc <- ci.auc(roc_obj)
 
-# Guardar AUC y IC en la tabla resumen
+# Guardar AUC-ROC y IC en la tabla resumen
   lista_resumen[[var]] <- data.frame(
-   Variable = var,
-   AUC = round(as.numeric(auc_valor), 3),
-   IC_inf = round(ci_auc[1], 3),
-   IC_sup = round(ci_auc[3], 3),
-   HL_pval = round(hl_p, 3)
-)
-}
+    Variable = var,
+    "AUC-ROC" = round(as.numeric(auc_valor), 3),
+    "IC 95%" = paste0(round(ci_auc[1], 3), " - ", round(ci_auc[3], 3)),
+    "Estadístico Test HL" = hl_X,
+    "p-valor" = round(hl_p, 3)
+)}
 
 # Todo seguido gaurdamos los resultados de las listas de métricas y predicciones en sus data.frames pertinentes
 tabla_resultados <- bind_rows(lista_resumen)
@@ -620,7 +625,7 @@ tabla_resultados %>%
 ggplot(df_calibracion, aes(x = Predicho, y = Observado)) +
   geom_smooth(method = "loess", se = TRUE, color = "#2c7fb8", span = 0.8) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~ Variable, ncol = 2) +
+  facet_wrap(~ Variable, ncol = 4) +
   labs(
     title = "Figura 14. Curvas de calibración de los modelos univariables",
     x = "Probabilidad predicha",
@@ -642,7 +647,7 @@ ggplot(df_calibracion, aes(x = Predicho, y = Observado)) +
 X <- model.matrix(~ . - 1, data = db[, num_list_PGS])
 y <- ifelse(db$Grupo == "PIP", 1, 0)
 
-# Y a continuación ajustamos el modelo penalizado por LASSO (alpha = 1) con validación cruzada (10-fold) usando AUC como métrica
+# Y a continuación ajustamos el modelo penalizado por LASSO (alpha = 1) con validación cruzada (10-fold) usando AUC-ROC como métrica
 set.seed(1965834)
 cv_lasso <- cv.glmnet(
   x = X,
@@ -653,7 +658,7 @@ cv_lasso <- cv.glmnet(
   nfolds = 10
 )
 
-print("Lambda con mejor AUC")
+print("Lambda con mejor AUC-ROC")
 cv_lasso$lambda.min
 
 # Y recuperamos las PGS y pPGS incluidas en el modelo penalizado identificando primero los coeficientes del modelo que no sean 0
@@ -671,14 +676,14 @@ sapply(db[, vars],class)
 # Y ajustamos un modelo GLM clásico con validación cruzada 10-fold
 modelo_lasso <- train(formula_final, data = db, method = "glm", family = "binomial", trControl = control_cv, metric = "ROC", preProcess = c("scale"))
 
-# Extraemos la AUC media de cada test de la validación cruzada (es decir, las predicciones internas de cada fold)
+# Extraemos la AUC-ROC media de cada test de la validación cruzada (es decir, las predicciones internas de cada fold)
 roc_lasso <- roc(response = modelo_lasso$pred$obs,
                  predictor = modelo_lasso$pred$PIP,
                  levels = c("CS", "PIP"))
 auc_lasso <- auc(roc_lasso)
 ci_lasso <- ci.auc(roc_lasso)
 
-print(paste("AUC LASSO (CV):", round(auc_lasso, 3)))
+print(paste("AUC-ROC LASSO (CV):", round(auc_lasso, 3)))
 print(paste0("IC 95%: [", round(ci_lasso[1], 3), ", ", round(ci_lasso[3], 3), "]"))
 
 
@@ -716,11 +721,20 @@ modelo_vif <- glm(Grupo ~ PGS_TDAH + PGS_BP + pPGS_SZ_NEUROINF,
 print("VIF:")
 vif(modelo_vif)
 
+# Con tal de graficar el VIF, creamos un vector con los valores
+valores_vif <- vif(modelo_vif)
+
+# Y generamos el gráfico en formato horizontal de cada valor VIF
+par(mar = c(5, 8, 4, 2))
+barplot(valores_vif, main = "Figura 16. Modelo multivariable: valores VIF", horiz = TRUE, col = "#8D98A7", 
+        xlim = c(0, 3), las = 1)
+
+
 ```
 
-## Evaluación de rendimiento predictivo comparativo
+# Evaluación de rendimiento predictivo comparativo
 
-### AUC
+## AUC-ROC
 
 ```{r auc, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
 # En primer lugar, guardamos todos los modelos a visualizar en la misma lista, reutilizando el listado creaod anteriormente en el análisis univariado
@@ -733,7 +747,7 @@ models <- c(lista_modelos, list("multivariable" = modelo_lasso))
 nombres_modelos_prefijo <- sprintf("%02d_%s", seq_along(names(models)), names(models))
 names(models) <- nombres_modelos_prefijo
 
-# Y finalmente ejecutamos evalm(), seleccionado que únicamente imprima el gráfico de AUC
+# Y finalmente ejecutamos evalm(), seleccionado que únicamente imprima el gráfico de AUC-ROC
 res <- evalm(
   models,
   gnames = names(models), 
