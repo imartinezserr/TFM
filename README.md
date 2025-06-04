@@ -4,21 +4,21 @@ Repositorio con los scripts utilizados en el análisis del TFM: *Evaluación de 
 
 ## Contenido
 
-- `1_Control_calidad_genetico.sh`  
-  → Script en bash para el control de calidad genético de los datos de genotipado después de la imputación.
+- `1_Control_calidad_genetico.sh`
+-     Script en bash para el control de calidad genético de los datos de genotipado después de la imputación.
 
-- `2_Construccion_PGS.sh`  
-  → Script en bash para la construcción de puntuaciones poligénicas (PGS, por sus siglas en inglés) mediante `plink2`.
+- `2_Construccion_PGS.sh`
+-     Script en bash para la construcción de puntuaciones poligénicas (PGS, por sus siglas en inglés) mediante `plink2`.
 
-- `3_Contruccion_pPGS.sh`  
-  → Script en bash para la construcción de PGS para vías biológicas (pPGS) adaptado para usar como referencia los datos de GWAS preprocesados por el algoritmo PRS-CS.
+- `3_Contruccion_pPGS.sh`
+-     Script en bash para la construcción de PGS para vías biológicas (pPGS) adaptado para usar como referencia los datos de GWAS preprocesados por el algoritmo PRS-CS.
 
-- `4_Analisis_estadistico_R.Rmd`  
-  → Notebook en RMarkdown que incluye:
+- `4_Analisis_estadistico_R.Rmd`
+-     Notebook en RMarkdown que incluye:
   - Figuras de resultados preliminares
   - Análisis exploratorio de datos
   - Análisis descriptivo: demográfico y clínico
-  - Análisis univariable: regresión logística + validación cruzada de 10-fold
+  - Análisis univariable: regresión logística para cada PGS y pPGS por separado + validación cruzada de 10-fold
   - Análisis multivariable: regresión logística con selección de LASSO + validación cruzada de 10-fold
   - Evaluación del rendimiento predictivo
 
@@ -45,6 +45,7 @@ Repositorio con los scripts utilizados en el análisis del TFM: *Evaluación de 
 - `purrr`
 - `factoextra`
 - `DataExplorer`
+- `GGally`
 
 ### Análisis descriptivo
 
@@ -72,6 +73,7 @@ Repositorio con los scripts utilizados en el análisis del TFM: *Evaluación de 
 - `car`
 - `smss`
 - `ROSE`
+- `MLeval`
 
 ### Tablas y gráficos
 
@@ -85,12 +87,13 @@ Repositorio con los scripts utilizados en el análisis del TFM: *Evaluación de 
 - `cowplot`
 - `ganttrify`
 - `VennDiagram`
+- `RColorBrewer`
 
 ## Entorno de trabajo
 
 El código ha sido desarrollado en:
 
-- **Sistema operativo:** Linux (procesamiento de datos de genotipado y construcción de PGS y pPGS) y RStudio (análisis exploratorio y estadístico).
+- **Sistema operativo:** Linux (procesamiento de datos de genotipado y construcción de PGS y pPGS) y Windows (RStudio, análisis exploratorio y estadístico).
 - **Formato de salidas:** Informe en PDF generado a partir de `.Rmd`.
 
 ---
